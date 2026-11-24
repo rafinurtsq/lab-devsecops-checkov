@@ -1,0 +1,131 @@
+# =============================================================================
+# LAB DEVSECOPS - PERTEMUAN 11
+# File: kubernetes/deployment-good.yaml
+#
+# ✅ Ini adalah versi yang sudah HARDENED / diperbaiki dari deployment-bad.yaml
+#    Gunakan sebagai referensi setelah Anda mencoba memperbaiki sendiri
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-secure
+  namespace: default
+  labels:
+    app: webapp
+    version: "1.25.3"
+spec:
+  replicas: 2  # ✅ Minimal 2 replika untuk high availability
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      # ✅ Security context di level pod
+      securityContext:
+        runAsNonRoot: true          # ✅ Tidak boleh berjalan sebagai root
+        runAsUser: 1000             # ✅ Non-root UID
+        runAsGroup: 3000
+        fsGroup: 2000               # ✅ Volume permission group
+        seccompProfile:
+          type: RuntimeDefault      # ✅ Seccomp profile default
+
+      containers:
+        - name: webapp
+          image: nginx:1.25.3       # ✅ Pin ke versi spesifik, bukan :latest
+
+          # ✅ Security context yang aman
+          securityContext:
+            privileged: false                 # ✅ Tidak privileged
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false   # ✅ Tidak bisa eskalasi privilege
+            readOnlyRootFilesystem: true      # ✅ Filesystem read-only
+            capabilities:
+              drop:
+                - ALL                         # ✅ Drop semua Linux capabilities
+
+          ports:
+            - containerPort: 8080
+              name: http
+
+          # ✅ Resource requests dan limits yang jelas
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+
+          # ✅ Liveness probe - restart jika container tidak sehat
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # ✅ Readiness probe - traffic masuk hanya jika siap
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 3
+
+          # ✅ Environment variables dari Secret, bukan hardcoded
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: db-password
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: api-key
+
+          # ✅ Volume mount untuk tmpfs (writable temp dir)
+          volumeMounts:
+            - name: tmp-vol
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp-vol
+          emptyDir: {}
+
+      # ✅ Tidak automount service account token jika tidak diperlukan
+      automountServiceAccountToken: false
+---
+# ✅ Secret untuk environment variables (nilai di-encode base64)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: default
+type: Opaque
+data:
+  # Nilai asli di-encode dengan: echo -n "nilai" | base64
+  db-password: c2VjcmV0cGFzc3dvcmQxMjM=   # secretpassword123
+  api-key: c2stZGV2LXRlc3QxMjM0NTY=       # sk-dev-test123456
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-service
+spec:
+  selector:
+    app: webapp
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP  # ✅ Internal only, bukan LoadBalancer langsung

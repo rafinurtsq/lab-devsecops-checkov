@@ -1,0 +1,30 @@
+# =============================================================================
+# LAB DEVSECOPS - PERTEMUAN 11 (Lab 05 - Pilihan B)
+# File: custom-policy/checks/enforce_tags.yaml
+#
+# Custom Checkov policy dalam format YAML
+# Alternatif dari s3_tags_check.py (tidak perlu Python)
+# =============================================================================
+
+metadata:
+  name: "S3 bucket harus memiliki tag owner dan environment"
+  id: "CUSTOM_AWS_S3_TAGS_YAML"
+  category: "GENERAL_SECURITY"
+  severity: HIGH
+
+scope:
+  provider: aws
+
+definition:
+  and:
+    - cond_type: "attribute"
+      resource_types:
+        - "aws_s3_bucket"
+      attribute: "tags.owner"
+      operator: "exists"
+
+    - cond_type: "attribute"
+      resource_types:
+        - "aws_s3_bucket"
+      attribute: "tags.environment"
+      operator: "exists"

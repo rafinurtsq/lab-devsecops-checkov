@@ -1,0 +1,152 @@
+# =============================================================================
+# LAB DEVSECOPS - PERTEMUAN 11
+# File: kubernetes/deployment-bad.yaml
+# deployment-bad.yaml (REVISI / HARDENED)
+#
+# ⚠️  PERINGATAN: File ini SENGAJA mengandung kerentanan keamanan K8s
+#     untuk keperluan latihan praktikum Checkov.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webapp
+  labels:
+    app: webapp
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: webapp-sa
+  namespace: webapp
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-secure
+  namespace: webapp
+  labels:
+    app: webapp
+    version: "1.25.3"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      serviceAccountName: webapp-sa
+      automountServiceAccountToken: false
+
+      # Security context level pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: webapp
+          # Image non-root, tag dipin (bukan :latest)
+          image: nginxinc/nginx-unprivileged:1.25.3
+          imagePullPolicy: Always
+
+          # Security context level container
+          securityContext:
+            privileged: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - name: http
+              containerPort: 8080
+
+          # Resource requests dan limits
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+
+          # Health probes
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Secret diambil dari Kubernetes Secret, bukan hardcoded
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: db-password
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: api-key
+
+          # Folder writable karena root filesystem read-only
+          volumeMounts:
+            - name: tmp-vol
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp-vol
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-service
+  namespace: webapp
+spec:
+  selector:
+    app: webapp
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: webapp-netpol
+  namespace: webapp
+spec:
+  podSelector:
+    matchLabels:
+      app: webapp
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080

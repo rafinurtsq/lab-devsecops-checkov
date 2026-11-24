@@ -1,0 +1,79 @@
+# =============================================================================
+# LAB DEVSECOPS - PERTEMUAN 11
+# File: kubernetes/deployment-bad.yaml
+#
+# ⚠️  PERINGATAN: File ini SENGAJA mengandung kerentanan keamanan K8s
+#     untuk keperluan latihan praktikum Checkov.
+#
+# Checkov checks yang akan FAILED:
+#   CKV_K8S_28  - Privileged container
+#   CKV_K8S_30  - allowPrivilegeEscalation
+#   CKV_K8S_11  - CPU limits tidak ada
+#   CKV_K8S_12  - Memory limits tidak ada
+#   CKV_K8S_14  - Non-root user
+#   CKV_K8S_8   - Liveness probe
+#   CKV_K8S_9   - Readiness probe
+#   CKV_K8S_15  - Image tag :latest
+#   CKV_K8S_43  - Image digest
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-insecure
+  namespace: default
+  labels:
+    app: webapp
+    version: "1.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      # ❌ Tidak ada securityContext di level pod
+      containers:
+        - name: webapp
+          image: nginx:latest  # ❌ Tag :latest tidak spesifik/tidak terpercaya
+
+          # ❌ Security context berbahaya
+          securityContext:
+            privileged: true                  # ❌ Container berjalan sebagai root host
+            runAsUser: 0                      # ❌ Berjalan sebagai root (UID 0)
+            allowPrivilegeEscalation: true    # ❌ Bisa eskalasi privilege
+            # readOnlyRootFilesystem tidak di-set → filesystem bisa ditulis
+
+          ports:
+            - containerPort: 80
+
+          # ❌ Tidak ada resource requests/limits
+          # Jika resource tidak dibatasi, container bisa menghabiskan semua CPU/RAM node
+
+          # ❌ Tidak ada liveness probe
+          # Kubernetes tidak tahu jika container crash/hang
+
+          # ❌ Tidak ada readiness probe
+          # Traffic bisa masuk ke pod yang belum siap
+
+          # ❌ Tidak ada environment variables validation
+          env:
+            - name: DB_PASSWORD
+              value: "supersecretpassword123"  # ❌ Password hardcoded di manifest!
+            - name: API_KEY
+              value: "sk-prod-abcdef123456"    # ❌ API key hardcoded!
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-service
+spec:
+  selector:
+    app: webapp
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer  # ❌ Ekspos langsung ke internet tanpa proteksi

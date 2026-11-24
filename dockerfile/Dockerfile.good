@@ -1,0 +1,75 @@
+# =============================================================================
+# LAB DEVSECOPS - PERTEMUAN 11
+# File: dockerfile/Dockerfile.good
+#
+# ✅ Dockerfile yang sudah HARDENED / diperbaiki dari Dockerfile.bad
+#    Referensi jawaban setelah Anda mencoba memperbaiki sendiri
+# =============================================================================
+
+# ✅ Multi-stage build untuk mengurangi ukuran image final
+# ✅ Pin ke versi spesifik, bukan :latest
+FROM python:3.11.6-slim AS builder
+
+# ✅ Set metadata image
+LABEL maintainer="devops@company.com"
+LABEL version="1.0.0"
+LABEL description="Secure Python web application"
+
+# ✅ Install hanya yang diperlukan, dengan version pinning
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl=7.88.1-10+deb12u7 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# ✅ Copy requirements dulu untuk memanfaatkan layer caching Docker
+COPY requirements.txt .
+
+# ✅ Install dengan --no-cache-dir dan upgrade pip terlebih dahulu
+RUN pip install --no-cache-dir --upgrade pip==24.0 && \
+    pip install --no-cache-dir -r requirements.txt
+
+# ✅ Copy source code setelah dependency (order penting untuk caching)
+# Gunakan .dockerignore untuk exclude file sensitif
+COPY --chown=appuser:appgroup src/ ./src/
+COPY --chown=appuser:appgroup config/ ./config/
+
+# ─── Final stage ─────────────────────────────────────────────────────────────
+FROM python:3.11.6-slim AS final
+
+# ✅ Buat non-root user dan group
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 \
+            --gid appgroup \
+            --no-create-home \
+            --shell /bin/false \
+            appuser
+
+# ✅ Direktori kerja dengan ownership yang benar
+WORKDIR /app
+RUN chown appuser:appgroup /app
+
+# ✅ Salin dari stage builder
+COPY --from=builder --chown=appuser:appgroup /app /app
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+
+# ✅ Gunakan non-root user
+USER appuser
+
+# ✅ Jangan hardcode secrets — gunakan environment variables dari luar
+# (inject saat runtime via Docker secret atau Kubernetes Secret)
+# ENV DB_PASSWORD  ← JANGAN lakukan ini untuk nilai sensitif
+
+# ✅ HEALTHCHECK yang proper
+HEALTHCHECK --interval=30s \
+            --timeout=10s \
+            --start-period=5s \
+            --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+EXPOSE 5000
+
+# ✅ CMD dalam exec form (bisa menerima signal OS dengan benar)
+CMD ["python3", "src/app.py"]
