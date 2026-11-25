@@ -1,39 +1,22 @@
-# =============================================================================
-# File pengujian untuk custom policy (Lab 05)
-# Jalankan: checkov -f test.tf --external-checks-dir ./checks -o table
-# =============================================================================
-
-# ❌ Harus FAILED: S3 tanpa tag sama sekali
+# 1. S3 tanpa tag wajib (harus FAILED)
 resource "aws_s3_bucket" "no_tags" {
-  bucket = "bucket-tanpa-tag"
+  bucket = "bucket-without-tags"
 }
 
-# ❌ Harus FAILED: S3 dengan tag tidak lengkap (tidak ada 'environment')
+# 2. S3 dengan tag tidak lengkap (harus FAILED)
 resource "aws_s3_bucket" "partial_tags" {
-  bucket = "bucket-tag-tidak-lengkap"
+  bucket = "bucket-partial-tags"
   tags = {
-    owner   = "devops-team"
-    project = "devsecops-lab"
-    # ❌ Tidak ada tag 'environment'
+    owner = "devops-team"
   }
 }
 
-# ✅ Harus PASSED: S3 dengan semua tag wajib
-resource "aws_s3_bucket" "complete_tags" {
-  bucket = "bucket-tag-lengkap"
+# 3. S3 dengan tag lengkap (harus PASSED)
+resource "aws_s3_bucket" "full_tags" {
+  bucket = "bucket-with-all-tags"
   tags = {
     owner       = "devops-team"
-    environment = "development"
-    project     = "devsecops-lab"
-    cost_center = "engineering"
-  }
-}
-
-# ✅ Harus PASSED: S3 dengan tag wajib (meski tag lain ada)
-resource "aws_s3_bucket" "minimal_required_tags" {
-  bucket = "bucket-tag-minimal"
-  tags = {
-    owner       = "backend-team"
-    environment = "staging"
+    environment = "production"
+    project     = "ecommerce"
   }
 }

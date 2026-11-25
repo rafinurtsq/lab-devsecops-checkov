@@ -1,0 +1,39 @@
+# Dockerfile (REVISI / HARDENED)
+# Tag image dipin, bukan latest
+FROM python:3.11.9-slim
+
+LABEL maintainer="devops@company.com"
+LABEL version="1.0.0"
+
+# Install paket minimal, bersihkan cache apt
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Buat user non-root
+RUN groupadd --gid 10001 appgroup && \
+    useradd --uid 10001 --gid appgroup --no-create-home --shell /usr/sbin/nologin appuser
+
+WORKDIR /app
+
+# Salin requirements dulu agar layer cache efisien
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Salin hanya source code yang dibutuhkan, bukan seluruh direktori
+COPY --chown=appuser:appgroup src/ ./src/
+
+# Jalankan sebagai non-root
+USER appuser
+
+# Secret TIDAK ditulis di sini. Berikan saat runtime, contoh:
+#   docker run -e DB_PASSWORD=... -e SECRET_KEY=... -e API_TOKEN=... image
+
+EXPOSE 5000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:5000/health || exit 1
+
+# Exec form agar proses menerima signal dengan benar
+CMD ["python3", "src/app.py"]

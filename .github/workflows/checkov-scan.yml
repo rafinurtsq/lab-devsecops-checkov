@@ -1,87 +1,78 @@
-name: Checkov IaC Scan
+name: "IaC Security Scan dengan Checkov"
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
-  workflow_dispatch:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - "kubernetes/**"
+      - "dockerfile/**"
 
 permissions:
   contents: read
+  security-events: write
+  actions: read
 
 jobs:
-  scan-hardened:
-    name: Scan file yang sudah diperbaiki
+  checkov-scan:
+    name: "Checkov Security Scan"
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: "Checkout repository"
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: "Run Checkov - Terraform"
+        id: checkov-terraform
+        uses: bridgecrewio/checkov-action@master
         with:
-          python-version: "3.11"
+          directory: terraform/
+          framework: terraform
+          output_format: cli,sarif
+          output_file_path: console,checkov-terraform.sarif
+          soft_fail: false
+        continue-on-error: true
 
-      - name: Install Checkov
-        run: pip install checkov
+      - name: "Run Checkov - Kubernetes"
+        id: checkov-k8s
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: kubernetes/
+          framework: kubernetes
+          output_format: cli,sarif
+          output_file_path: console,checkov-k8s.sarif
+          soft_fail: true
+        continue-on-error: true
 
-      - name: Scan Terraform
-        run: checkov -f terraform/main.tf --framework terraform --compact --soft-fail
+      - name: "Run Checkov - Dockerfile"
+        id: checkov-dockerfile
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: dockerfile/
+          framework: dockerfile
+          output_format: cli,sarif
+          output_file_path: console,checkov-dockerfile.sarif
+          soft_fail: true
+        continue-on-error: true
 
-      - name: Scan Kubernetes
-        run: checkov -f kubernetes/deployment-bad.yaml --framework kubernetes --compact --soft-fail
+      - name: "Upload SARIF ke GitHub Security tab"
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('checkov-terraform.sarif') != ''
+        with:
+          sarif_file: checkov-terraform.sarif
+          category: "checkov-terraform"
 
-      - name: Scan Dockerfile
+      - name: "Block pipeline jika ditemukan pelanggaran di Terraform"
+        if: steps.checkov-terraform.outcome == 'failure'
         run: |
-          mkdir -p scan-docker
-          cp dockerfile/Dockerfile.bad scan-docker/Dockerfile
-          checkov -f scan-docker/Dockerfile --framework dockerfile --compact --soft-fail
+          echo "Checkov menemukan pelanggaran keamanan pada Terraform!"
+          echo "Periksa log job atau tab Security -> Code scanning untuk detail."
+          exit 1
 
-      - name: Scan custom policy
-        run: checkov -f custom-policy/test.tf --framework terraform --external-checks-dir custom-policy/checks --check CKV_CUSTOM_S3_1 --compact --soft-fail
-
-      - name: Buat laporan JSON
-        if: always()
+      - name: "Report sukses"
+        if: steps.checkov-terraform.outcome == 'success'
         run: |
-          mkdir -p out/terraform out/kubernetes out/docker
-          checkov -f terraform/main.tf --framework terraform -o json --output-file-path out/terraform --soft-fail
-          checkov -f kubernetes/deployment-bad.yaml --framework kubernetes -o json --output-file-path out/kubernetes --soft-fail
-          checkov -f scan-docker/Dockerfile --framework dockerfile -o json --output-file-path out/docker --soft-fail
-
-      - name: Upload laporan
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: checkov-reports
-          path: out/
-
-  scan-vulnerable-demo:
-    name: Demo - file rentan harus terdeteksi gagal
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Checkov
-        run: pip install checkov
-
-      - name: Scan Terraform rentan
-        continue-on-error: true
-        run: checkov -d demo-bad/terraform --framework terraform --compact
-
-      - name: Scan Kubernetes rentan
-        if: always()
-        continue-on-error: true
-        run: checkov -d demo-bad/kubernetes --framework kubernetes --compact
-
-      - name: Scan Dockerfile rentan
-        if: always()
-        continue-on-error: true
-        run: checkov -d demo-bad/docker --framework dockerfile --compact
+          echo "Seluruh pemeriksaan Checkov pada Terraform PASSED!"
